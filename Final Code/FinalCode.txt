@@ -1,0 +1,169 @@
+import time
+from qiskit import QuantumRegister, ClassicalRegister
+from qiskit import QuantumCircuit
+from qiskit import execute
+from qiskit import IBMQ
+from qiskit import Aer
+import math
+import operator
+from random import seed
+from random import randint
+from numpy import gcd
+IBMQ.save_account('API_token')
+IBMQ.load_account()
+provider = IBMQ.get_provider(hub='ibm-q',group='open')
+sim = provider.get_backend('simulator_mps')
+def isPrime(number):
+    from qiskit import IBMQ
+    from qiskit.aqua import QuantumInstance
+    from qiskit.aqua.algorithms import Shor
+    IBMQ.save_account('API_token')
+    IBMQ.load_account()
+    provider = IBMQ.get_provider(hub='ibm-q')
+    sim = provider.get_backend('simulator_mps')
+    factors = Shor(number) #Function to run Shor's algorithm where 21 is the integer to be factored
+
+    result_dict = factors.run(QuantumInstance(sim, shots=1024, skip_qobj_validation=False))
+    result = result_dict['factors'] # Get factors from results
+
+    return result
+import math
+def CreateInputState(qc,reg,n,pie):
+    qc.h(reg[n])
+    for i in range(0,n):
+        qc.cu1(pie/float(2**(i+1)),reg[n-(i+1)],reg[n])
+
+def evolveQFTstate(qc,reg_a,reg_b,n,pie,factor):
+    l = len(reg_b)
+    for i in range (0,n+1):
+        if((n-i)>l-1):
+            pass
+        else:
+            qc.cu1(factor * pie / float(2**(i)), reg_b[n - i], reg_a[n])
+            
+def inverseQFT(qc,reg,n,pie):
+    for i in range(0,n):
+        qc.cu1(-1*pie/float(2**(n-i)),reg[i],reg[n])
+    qc.h(reg[n])
+def QFTADD(reg_a,reg_b,circ,factor=1):
+    pie = math.pi
+    n = len(reg_a)
+    for i in range(0,n):
+        CreateInputState(circ,reg_a,n-(i+1),pie)
+    for i in range(0,n):
+        evolveQFTstate(circ,reg_a,reg_b,n-(i+1),pie,factor)
+    for i in range(0,n):
+        inverseQFT(circ,reg_a,i,pie)
+def QFTsub(reg_a,reg_b,circ):
+    QFTADD(reg_a,reg_b,circ,-1)
+def mul(multiplicand_in,multiplier_in):
+    l1=len(multiplicand_in)
+    l2 = len(multiplier_in)
+    if l2>l1:
+        multiplier_in,multiplicand_in = multiplicand_in,multiplier_in
+        l2,l1 = l1,l2
+    accumulator = QuantumRegister(l1+l2)
+    multiplicand = QuantumRegister(l1)
+    multiplier = QuantumRegister(l2)
+    d = QuantumRegister(1)
+    cl_accumulator = ClassicalRegister(l1+l2)
+    cl_multiplier = ClassicalRegister(l2)
+    circ_accumulator = QuantumCircuit(accumulator,multiplicand,cl_accumulator)
+    circ_multiplier = QuantumCircuit(multiplier,d,cl_multiplier)
+    circ_multiplier.x(d[0])
+    for i in range(l1):
+        if multiplicand_in[i] == '1':
+            circ_accumulator.x(multiplicand[l1-i-1])
+    for i in range(l2):
+        if multiplier_in[i] == '1':
+            circ_multiplier.x(multiplier[l2-i-1])
+    multiplier_str = '1'
+    while(int(multiplier_str) != 0):
+        QFTADD(accumulator, multiplicand, circ_accumulator)
+        QFTsub(multiplier, d, circ_multiplier)
+        circ_multiplier.measure(multiplier, cl_multiplier)
+        result = execute(circ_multiplier, backend=Aer.get_backend('qasm_simulator'), shots=2).result().get_counts(circ_multiplier)
+        multiplier_str = list(result.keys())[0]
+    
+    circ_accumulator.measure(accumulator, cl_accumulator)
+    result = execute(circ_accumulator, backend=Aer.get_backend('qasm_simulator'), shots=2).result().get_counts(circ_accumulator)
+    total = list(result.keys())[0]
+    return total
+print('\n Encryption using RSA Algorithm')
+print('--------------------')
+print('\n Please enter the values of P and Q')
+P = int(input('Enter a prime number for P: '))
+Q = int(input('Enter a prime number for Q: '))
+print('--------------------')
+#Check if P and Q are prime or not
+check_P = isPrime(P)
+check_Q = isPrime(Q)
+while((check_P != []) or (check_Q != [])):
+    P = int(input('Enter a prime number for P: '))
+    Q = int(input('Enter a prime number for Q: '))
+    check_P = isPrime(P)
+    check_Q = isPrime(Q)
+#Product of P and Q
+N = mul(format(P,"b"),format(Q,"b"))
+print('The Product of P and Q:',int(N,2))
+PhiOfN = mul(format((P-1),"b"),format((Q-1),"b"))
+print('The Product of P and Q:',int(PhiOfN,2))
+L = int(PhiOfN,2)
+for E in range(2,L):
+    if gcd(int(N,2),E) * gcd(int(PhiOfN,2),E)==1:
+        break
+public_key = (E,int(N,2))
+print("The public key is: ",public_key)
+def encrypt(pub_key,n_text):
+    e,n = pub_key
+    x=[]
+    m=0
+    for i in n_text:
+        if(i.isupper()):
+            m = ord(i)-65
+            c = (m**e)%n
+            x.append(c)
+        elif(i.islower()):
+            m = ord(i)-97
+            c = (m**e)%n
+            x.append(c)
+        elif(i.isspace()):
+            spc=400
+            x.append(spc)
+    return x
+message = input("Please enter a message to encrypt: ")
+enc_msg = encrypt(public_key,message)
+print('The Encrypted Message is: ',enc_msg)
+print('\n Decryption using Shor Algorithm')
+print('--------------------')
+#Finding factors using Shor Algorithm
+factors = isPrime(int(N,2))
+factors
+#Finding the Private Key
+P_dec = factors[0][0]
+Q_dec = factors[0][1]
+L = (P_dec - 1)*(Q_dec - 1)
+D=1
+while True:
+    if D * E % L == 1 and D!=E and D!=int(N,2):
+        break
+    D += 1
+private_key = (D,int(N,2))
+print('The Private Key is: ',private_key)
+def decrypt(priv_key,c_text):
+    d,n=priv_key
+    listToStr = ','.join([str(elem) for elem in c_text])
+    txt=listToStr.split(',')
+    x=''
+    m=0
+    for i in txt:
+        if(i=='400'):
+            x+=' '
+        else:
+            m=(int(i)**d)%n
+            m+=65
+            c=chr(m)
+            x+=c
+    return x
+dec_msg = decrypt(private_key,enc_msg)
+print('The Decrypted Message is: ',dec_msg)
